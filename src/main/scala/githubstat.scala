@@ -8,31 +8,28 @@ import scala.io.Source
  */
 
 object githubstat {
+  // Begin time label of files selected
+  private val yearBegin = 2015
+  private val monthBegin = 1
+  private val dateBegin = 1
+  private val hourBegin = 0
+
+  // End time label of files selected
+  private val yearEnd = 2015
+  private val monthEnd = 2
+  private val dateEnd = 28
+  private val hourEnd = 23
+
   def main(args: Array[String]): Unit = {
     val inputPath = "/Users/hwang/IdeaProjects/githubstat/data/"
 
-    // FIXME: Set ranges of time, not complete yet.  Now the year, month, date, hour are checked seperately.
-    val yearRange = 2015 to 2015
-    val monthRange = 1 to 1
-    val dateRange = 1 to 4
-    val hourRange = 0 to 23
-
     val mapEventCounts = mutable.Map.empty[String, Int]
-    val inputFileNames = for {
-                              year <- yearRange
-                              month <- monthRange
-                              date <- dateRange
-                              hour <- hourRange
-                             } yield f"$year-$month%02d-$date%02d-$hour.json"
+    val files = (new java.io.File(inputPath)).listFiles
+    val filesSel = files.filter(f=>f.getName.endsWith(".json")).filter(f=>fileInDateRange(f.getName))
 
-/* NOTE: Alternative way to get all files in a folder
-val filesHere = (new java.io.File(".")).listFiles
-        for (file <- filesHere)
-println(file)
-*/
-
-    for (inputFileName <- inputFileNames) {
-      val sInput = Source.fromFile(inputPath + inputFileName).getLines()
+    for (inputFileName <- filesSel) {
+      println(s"Processing $inputFileName")
+      val sInput = Source.fromFile(inputFileName).getLines()
       for (line <- sInput ) {
         val jsonVal = parse(line)
         val lEventType = for {JObject(eventJson) <- jsonVal
@@ -47,7 +44,22 @@ println(file)
     }
 
     // Print results.
-//    val maxCount = mapEventCounts.max
     mapEventCounts.foreach(m => println(m._1 + ": " + m._2))
+  }
+
+  /**
+   * Check whether the time label of the file is in selected time range.
+   */
+  def fileInDateRange(fn: String): Boolean = {
+    val fnParts = fn.split(Array('-', '.'))
+    val year = fnParts(0).toInt
+    val month = fnParts(1).toInt
+    val date = fnParts(2).toInt
+    val hour = fnParts(3).toInt
+
+    (year > yearBegin || year == yearBegin && month > monthBegin || year == yearBegin && month == monthBegin && date > dateBegin ||
+      year == yearBegin && month == monthBegin && date == dateBegin && hour >= hourBegin) &&
+      (year < yearEnd || year == yearEnd && month < monthEnd || year == yearEnd && month == monthEnd && date < dateEnd ||
+        year == yearEnd && month == monthEnd && date == dateEnd && hour <= hourEnd)
   }
 }
