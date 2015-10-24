@@ -2,6 +2,10 @@ import org.json4s._
 import org.json4s.jackson.JsonMethods._
 import scala.collection.mutable
 import scala.io.Source
+import scala.concurrent.{Await, Future}
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.util.{Failure, Success}
+import scala.concurrent.duration._
 
 /**
  * Read GitHub Event json archives from files in a folder and print out statistics of different events.
@@ -19,32 +23,54 @@ object githubstat {
   private val monthEnd = 2
   private val dateEnd = 28
   private val hourEnd = 23
+  private val mapEventCounts = mutable.Map.empty[String, Int]
 
   def main(args: Array[String]): Unit = {
+    val numFuture = 64 // number of Futures in a batch.
     val inputPath = "/Users/hwang/IdeaProjects/githubstat/data/"
 
-    val mapEventCounts = mutable.Map.empty[String, Int]
     val files = (new java.io.File(inputPath)).listFiles
-    val filesSel = files.filter(f=>f.getName.endsWith(".json")).filter(f=>fileInDateRange(f.getName))
+    val filesSel = files.filter(_.getName.endsWith(".json")).filter(f=>fileInDateRange(f.getName))
 
     for (inputFileName <- filesSel) {
       println(s"Processing $inputFileName")
-      val sInput = Source.fromFile(inputFileName).getLines()
-      for (line <- sInput ) {
-        val jsonVal = parse(line)
-        val lEventType = for {JObject(eventJson) <- jsonVal
-             JField("type", JString(eventType)) <- eventJson} yield eventType
-        val type1 = lEventType.head // take the first "type" element.
-        if (mapEventCounts.contains(type1)) {
-          mapEventCounts(type1) += 1
-        } else {
-          mapEventCounts(type1) = 1 // insert new event counter.
+      val sInput = Source.fromFile(inputFileName)
+      val iLines = sInput.getLines().grouped(numFuture)
+      for (lines <- iLines) {
+        val sfEventTypes = lines.map(
+          line => Future { // process each 7 lines in Futures (possibly the same number of threads.)
+            val jsonVal = parse(line)
+            val lEventType = for {
+              JObject(eventJson) <- jsonVal
+              JField("type", JString(eventType)) <- eventJson
+            } yield eventType
+            lEventType.head // take the first "type" element.
+          }
+        )
+
+        // Combine Seq[Future[String]] into one Future[Seq[String]] thus able to handle all of them after completion.
+       val fsEventTypes = Future.sequence(sfEventTypes)
+
+        fsEventTypes.onComplete {
+          case Success(eventTypes) => addCounter(eventTypes)
+          case Failure(e) => { println("Failure in parsing json."); e.printStackTrace }
         }
+        Await.ready(fsEventTypes, 10.seconds)
       }
+      sInput.close() // if not calling close, there will be many files kept open in this concurrent implementation. why?
     }
 
     // Print results.
     mapEventCounts.foreach(m => println(m._1 + ": " + m._2))
+  }
+
+  def addCounter (eventType: Seq[String]): Unit = {
+    for (et <- eventType)
+      if (mapEventCounts.contains(et)) {
+        mapEventCounts(et) += 1
+      } else {
+        mapEventCounts(et) = 1 // insert new event counter.
+      }
   }
 
   /**
