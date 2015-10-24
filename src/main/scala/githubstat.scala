@@ -1,5 +1,4 @@
-import org.json4s._
-import org.json4s.native.JsonMethods._
+import org.json4s.native.JsonParser._
 import scala.collection.mutable
 import scala.io.Source
 
@@ -27,14 +26,28 @@ object githubstat {
     val files = (new java.io.File(inputPath)).listFiles
     val filesSel = files.filter(f=>f.getName.endsWith(".json")).filter(f=>fileInDateRange(f.getName))
 
+    val parser = (p: Parser) => {
+      def parse: String = p.nextToken match {
+        case FieldStart("type") => p.nextToken match {
+          case StringVal(code) => code
+          case _ => p.fail("expected String")
+        }
+        case End => p.fail("no field named 'type'")
+        case _ => parse
+      }
+      parse
+    }
+
     for (inputFileName <- filesSel) {
       println(s"Processing $inputFileName")
       val sInput = Source.fromFile(inputFileName).getLines()
       for (line <- sInput ) {
-        val jsonVal = parse(line)
+/*        val jsonVal = parse(line)
         val lEventType = for {JObject(eventJson) <- jsonVal
              JField("type", JString(eventType)) <- eventJson} yield eventType
         val type1 = lEventType.head // take the first "type" element.
+*/
+        val type1 = parse(line, parser)
         if (mapEventCounts.contains(type1)) {
           mapEventCounts(type1) += 1
         } else {
